@@ -80,7 +80,7 @@ export default function HomePage() {
               selectedId={selectedSemester}
               onSelect={(id) => id && setSelectedSemester(id)}
             />
-            <UserButton afterSignOutUrl="/sign-in" />
+            <UserButton />
           </div>
         </div>
       </header>
