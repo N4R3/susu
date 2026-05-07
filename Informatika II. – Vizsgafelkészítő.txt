@@ -1,0 +1,585 @@
+**Informatika II. – Vizsgafelkészítő tananyag (2026.05.09)**  
+**Tárgy:** Python-alapú Windows SOC Analyst Tool (SIEM + HIDS)  
+**Célközönség:** kiberbiztonsági mérnöki BSc levelezős hallgató  
+**Stílus:** rövid, gyakorlati, kódközpontú, vizsgára optimalizált. Csak azt tartalmazza, amit a vizsgán el kell tudnod magyarázni és módosítani.
+
+### 1. Template Engine
+**Rövid magyarázat:**  
+Dinamikusan tölti fel a riport-sablonokat (HTML/JSON). Jinja2-vel dolgozik, hogy a kód és a megjelenítés teljesen szétváljon. SOC elemzőnek olvasható, formázott riportot ad ki.
+
+**Példa:**
+```python
+from jinja2 import Environment, FileSystemLoader
+env = Environment(loader=FileSystemLoader('templates'))
+template = env.get_template('report.html')
+html = template.render(
+    suspicious_ips=ip_list,
+    failed_logins=count,
+    integrity_changes=changed_files
+)
+with open('report.html', 'w') as f:
+    f.write(html)
+```
+
+**Mit kell tudnom elmagyarázni?**  
+- Miért kell template engine (logika vs. prezentáció szétválasztása).  
+- Jinja2 betöltés, renderelés, változó, loop, if.  
+- Hogyan kerülnek bele a SOC adatok (anomáliák, integritás-változások).
+
+**Mit kérdezhetnek / mit kellhet módosítani?**  
+- Adj hozzá új szekciót (pl. „Brute force incidensek”).  
+- Változtasd meg JSON kimenetre.  
+- Mi történik, ha a template fájl hiányzik? (error handling).
+
+### 2. Mock Log Generator
+**Rövid magyarázat:**  
+Teszteléshez generál fake Windows-szerű logokat (sikeres/sikertelen belépés, IP, timestamp). Lehetővé teszi a SIEM működésének tesztelését valós logok nélkül is.
+
+**Példa:**
+```python
+import random
+from datetime import datetime, timedelta
+def generate_mock_logs(n=200, brute_force=False):
+    logs = []
+    for i in range(n):
+        ip = f"192.168.{random.randint(1,10)}.{random.randint(1,255)}"
+        if brute_force and i < 15:
+            ip = "185.22.33.44"  # támadó IP
+        status = "failed" if random.random() < 0.3 else "success"
+        ts = datetime.now() - timedelta(minutes=random.randint(0,60))
+        logs.append(f"[{ts}] LOGIN {status} FROM {ip} EVENTID 4625")
+    return logs
+```
+
+**Mit kell tudnom elmagyarázni?**  
+- Miért kell mock data a fejlesztéshez és unit tesztekhez.  
+- Hogyan szimulálunk támadást (brute force cluster).  
+- Paraméterezhetőség és reprodukálhatóság (random.seed).
+
+**Mit kérdezhetnek / mit kellhet módosítani?**  
+- Generálj csak brute force logokat 5 percen belül.  
+- Adj hozzá fájl-módosítási eventet.  
+- Tedd determinisztikussá seed-del.
+
+### 3. Windows Log Parser
+**Rövid magyarázat:**  
+Beolvassa és strukturálja a log sorokat (timestamp, IP, event type, user). Regex vagy csv.DictReader-rel dolgozik. Kinyeri a SOC szempontból fontos mezőket.
+
+**Példa:**
+```python
+import re
+def parse_log_line(line):
+    pattern = r'\[(.*?)\] LOGIN (\w+) FROM (\S+) EVENTID (\d+)'
+    match = re.match(pattern, line)
+    if match:
+        return {
+            'timestamp': match.group(1),
+            'status': match.group(2),
+            'ip': match.group(3),
+            'event_id': int(match.group(4))
+        }
+    return None
+```
+
+**Mit kell tudnom elmagyarázni?**  
+- Log formátum feldolgozása (regex vs. struktúrált).  
+- Milyen mezőket kell kinyerni SOC-hoz (IP, status, event_id).  
+- Hibakezelés rossz soroknál.
+
+**Mit kérdezhetnek / mit kellhet módosítani?**  
+- Írd át a parsert, hogy Event ID 4625-re fókuszáljon.  
+- Adj hozzá user mezőt.  
+- Kezeld a hiányzó mezőket gracefully.
+
+### 4. Anomaly Detector
+**Rövid magyarázat:**  
+Egyszerű szabályalapú detektor: számolja a sikertelen belépéseket IP-nként időablakban és jelzi a brute force-t.
+
+**Példa:**
+```python
+from collections import defaultdict
+def detect_anomalies(logs, threshold=5, window_minutes=5):
+    failed = defaultdict(list)
+    for log in logs:
+        if log['status'] == 'failed':
+            failed[log['ip']].append(log['timestamp'])
+    suspicious = [ip for ip, times in failed.items() if len(times) >= threshold]
+    return suspicious
+```
+
+**Mit kell tudnom elmagyarázni?**  
+- Threshold + időablak logika (SIEM szabályok).  
+- Brute force felismerés.  
+- Miért egyszerű szabályalapú (nem ML) egy BSc projektben.
+
+**Mit kérdezhetnek / mit kellhet módosítani?**  
+- Emeld a thresholdöt 10-re és adj hozzá időablak szűrést.  
+- Integrálj egyszerű ML-t (pl. Isolation Forest) – de csak ha kérdezik.
+
+### 5. Integrity Checker (HIDS)
+**Rövid magyarázat:**  
+Fájlok SHA256 hash-ét számítja, baseline JSON-nal összehasonlítja → változás = riasztás (klasszikus HIDS).
+
+**Példa:**
+```python
+import hashlib, json, os
+def calculate_hash(file_path):
+    with open(file_path, 'rb') as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+def check_integrity(baseline_path, files_to_check):
+    with open(baseline_path) as f:
+        baseline = json.load(f)
+    changes = []
+    for file in files_to_check:
+        current = calculate_hash(file)
+        if current != baseline.get(file):
+            changes.append(file)
+    return changes
+```
+
+**Mit kell tudnom elmagyarázni?**  
+- Mi a HIDS és miért kell fájlintegritás-ellenőrzés.  
+- Hash funkció (sha256 miért jó).  
+- Baseline vs. current összehasonlítás.
+
+**Mit kérdezhetnek / mit kellhet módosítani?**  
+- Adj hozzá új fájlt a baseline-hez.  
+- Változtasd MD5-re (és magyarázd miért rosszabb).  
+- Implementálj rekurzív mappakezelést.
+
+### 6. Report Generator
+**Rövid magyarázat:**  
+Összegyűjti az összes modul eredményét és Template Engine-n keresztül HTML/JSON riportot készít.
+
+**Mit kell tudnom elmagyarázni?**  
+- Hogyan hívja a többi modult (parser → anomaly → integrity → template).  
+- Két formátum (HTML embernek, JSON automatizálásnak).
+
+**Mit kérdezhetnek / mit kellhet módosítani?**  
+- Generálj csak JSON-t.  
+- Adj hozzá diagramot (pl. matplotlib → base64).
+
+### 7. Main Application
+**Rövid magyarázat:**  
+A „főnök” modul: CLI-ból kap parancsot, sorban futtatja a többi modult (generate → parse → detect → check → report).
+
+**Mit kell tudnom elmagyarázni?**  
+- Pipeline logika (orchestration).  
+- Error handling a teljes flow-ban.
+
+### 8. Command Line Interface
+**Rövid magyarázat:**  
+argparse (vagy click) segítségével parancssori paraméterek: `--generate-logs`, `--analyze`, `--report`, `--integrity`.
+
+**Példa kulcsrész:**
+```python
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--generate', action='store_true')
+parser.add_argument('--brute', action='store_true')
+args = parser.parse_args()
+```
+
+**Mit kell tudnom elmagyarázni?**  
+- Miért kell CLI egy SOC toolhoz.  
+- Action + store_true használata.
+
+### 9. Unit Tests
+**Rövid magyarázat:**  
+pytest-tel teszteli az egyes függvényeket (pl. parse_log_line, calculate_hash).
+
+**Példa:**
+```python
+def test_parse_failed_login():
+    line = "[2026-05-07] LOGIN failed FROM 1.2.3.4 EVENTID 4625"
+    result = parse_log_line(line)
+    assert result['status'] == 'failed'
+    assert result['ip'] == '1.2.3.4'
+```
+
+**Mit kell tudnom elmagyarázni?**  
+- Unit vs. integration test különbség.  
+- assert és pytest fixture-ek.
+
+### 10. Integration Test
+**Rövid magyarázat:**  
+Teljes flow teszt: mock log → parse → anomaly detect → integrity → report fájl létezik-e és tartalmazza-e a várt adatokat.
+
+**Mit kell tudnom elmagyarázni?**  
+- Miért fontos (end-to-end ellenőrzés).  
+- Temporary fájlok használata a tesztben.
+
+### Gyakorlófeladatok (írd meg / magyarázd el vizsgán)
+1. **Log sor feldolgozása** → írd meg a `parse_log_line` függvényt regex-szel.
+2. **Sikertelen belépések számolása IP szerint** → `collections.Counter` vagy defaultdict.
+3. **Brute force felismerése** → 5+ failed login 5 percen belül ugyanarról az IP-ről.
+4. **Gyanús IP lista készítése** → gyűjtsd listába és írd ki.
+5. **Fájl hash számítása** → hashlib.sha256 példa + baseline mentés JSON-ba.
+6. **Integritásváltozás felismerése** → baseline-ből olvas + aktuális hash összehasonlítás.
+7. **Egyszerű HTML riport generálása** → Jinja2 template + render.
+8. **Unit test írása parserhez** → pytest példa 2 teszttel (success + failed).
+
+### Ismétlő tervek
+**30 perces verzió (utolsó roham):**  
+Modulok 3-4-5 (Parser, Anomaly, Integrity) + 3 gyakorlófeladat (2,3,5) + common mistakes átolvasás.
+
+**60 perces verzió:**  
+1-6 modul + 5 gyakorlófeladat (1-5) + 1 óra túlélő összefoglaló.
+
+**120 perces verzió (ideális):**  
+Minden modul végigolvasása + összes gyakorlófeladat megírása + CLI + Main + tesztek + common mistakes.
+
+### Common mistakes lista (ne kövesd el!)
+- Regex nem kezeli az összes log formátumot → mindig adj hozzá fallbacket.
+- Hash fájl nem záródik be (`with open` hiánya).
+- Timestamp string marad → nem lehet vele számolni (konvertáld datetime-ra).
+- Globális változókat használsz a modulok között → rossz tervezés.
+- Unit testben nincs assert → „működik” helyett.
+- Report generálás előtt nem hívod az anomaly/integrity modult.
+- CLI argumentumot nem kezeled (`if args.generate` hiánya).
+- Nincs error handling rossz fájl esetén → vizsgán rögtön levonás.
+
+### Ha csak 1 órám van – túlélő útvonal
+1. 0-15 perc: Modul 3,4,5 (Parser + Anomaly + Integrity) + példakódok bemagolása.  
+2. 15-35 perc: Gyakorlófeladatok 2,3,5,6 (ezek a legvalószínűbb vizsgakérdések).  
+3. 35-50 perc: Common mistakes lista + saját leggyengébb modul gyors átolvasása.  
+4. 50-60 perc: CLI + Main Application összefoglaló + „mi a pipeline” magyarázat gyakorlása hangosan.
+
+Sok sikert a vizsgán!  
+Ez a tananyag pontosan arra van optimalizálva, amit egy levelezős kiberbiztonsági mérnök hallgatónak kell tudnia: magyarázni, módosítani, kódolni és SOC szemlélettel gondolkodni.  
+
+Ha bármit kell finomítani vagy kiegészíteni (pl. konkrét kódrészleted alapján), szólj!
+
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+Alább van egy vizsgára készülő, Python‑/SOC‑orientált, tömör, forrásalapú kiegészítő tananyag. Minden témához 1–1 rövid, végigfutatható Python példa, tipikus vizsgakérdések és gyakori hibák, majd hivatkozásokkal.
+
+***
+
+### 1. SOC alapfogalom
+
+**Rövid magyarázat**  
+A SOC (Security Operations Center) egy központosított csapat/eszközrendszert jelent, amely folyamatosan figyeli a hálózati és rendszereseményeket, észleli a támadásokat, és koordinálta a reakciót. [microsoft](https://www.microsoft.com/hu-hu/security/business/security-101/what-is-a-security-operations-center-soc)
+
+**Kulcsfogalmak**  
+- Folyamatos monitorozás (24/7),  
+- Incident response,  
+- Esemény (log) gyűjtés és korráláció,  
+- Log‑gyűjtő (SIEM hasonló rendszer),  
+- Threat hunting (proaktív hibaelhárítás). [hte](https://www.hte.hu/documents/10180/4864448/Marsi_Tam%C3%A1s_EIVOK-36.pdf)
+
+**Vizsgán hogyan kérdezhetik**  
+- „Mi a SOC fő feladata?”  
+- „Milyen forrásokat használ egy SOC?”  
+- „Mondj egy olyan logforrást, amelyet egy SOC figyelhet.”  
+
+**Gyakori hibák**  
+- SOC‑ot csak „szoftvernek” vagy „csakis SIEM‑nek” leírni, nem rendszer/intézményként.  
+- Nem említeni a manuális beavatkozást, csak az automatizmust.  
+
+**Források**  
+- Microsoft: [Mi az a biztonsági üzemeltetési központ (SOC)?](https://www.microsoft.com/hu-hu/security/business/security-101/what-is-a-security-operations-center-soc) [microsoft](https://www.microsoft.com/hu-hu/security/business/security-101/what-is-a-security-operations-center-soc)
+- BeOS: [Biztonsági Műveleti Központ (SOC) szerepe az IT‑biztonságban](https://beos.hu/biztonsagi-muveleti-kozpont-soc-definicioja-es-szerepe-az-it-biztonsagban/) [beos](https://beos.hu/biztonsagi-muveleti-kozpont-soc-definicioja-es-szerepe-az-it-biztonsagban/)
+
+***
+
+### 2. SIEM logelemzés
+
+**Rövid magyarázat**  
+SIEM (Security Information and Event Management) gyűjti, tárolja és elemzi a különböző rendszerek logjait, hogy korrelált, strukturált eseményekként mutassa a biztonsági eseményeket. A logelemzés részében keresünk ismétlődő, gyanús mintákat. [negg](https://negg.blog/en/siem-and-cyber-security-advanced-protection-and-monitoring/)
+
+**Kulcsfogalmak**  
+- Loginjektálás (log ingest),  
+- Normalizálás (log struktúra),  
+- Korrelációs szabály,  
+- Esemény súlyozás (severity),  
+- Dashboards / alerting. [freecodecamp](https://www.freecodecamp.org/news/how-to-create-a-python-siem-system-using-ai-and-llms/)
+
+**Vizsgán hogyan kérdezhetik**  
+- „Miért fontos a log normalizálás?”  
+- „Írj egy példa szabályt, amely több hibás bejelentkezést számol meg.”  
+
+**Python‑példa (nagyon egyszerű SIEM‑szerű loggyűjtés)**  
+
+```python
+import datetime
+import json
+
+LOG_FILE = "siem_logs.json"
+
+def log_event(source, event_type, ip, message):
+    entry = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "source": source,
+        "event_type": event_type,
+        "ip": ip,
+        "message": message
+    }
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+
+# Használat:
+log_event("Windows Firewall", "BLOCK", "192.168.1.100", "Rendszerfelület elutasítva")
+```
+
+**Gyakori hibák**  
+- Nem timestampelt, „nyers” szövegként ír logot, nem JSON/strukturáltan.  
+- Nem figyel a log típusra (pl. minden esemény „INFO” marad).  
+
+**Források**  
+- NEGG: [SIEM and cyber security: advanced protection and monitoring](https://negg.blog/en/siem-and-cyber-security-advanced-protection-and-monitoring/) [negg](https://negg.blog/en/siem-and-cyber-security-advanced-protection-and-monitoring/)
+- FreeCodeCamp: [How to create a Python SIEM](https://www.freecodecamp.org/news/how-to-create-a-python-siem-system-using-ai-and-llms/) [freecodecamp](https://www.freecodecamp.org/news/how-to-create-a-python-siem-system-using-ai-and-llms/)
+
+***
+
+### 3. HIDS / fájlintegritás‑ellenőrzés
+
+**Rövid magyarázat**  
+HIDS (Host‑based Intrusion Detection System) a gépen belül figyeli a fájlok, regiszterek, folyamatok változásait. Fájlintegritás‑ellenőrzés: egy „baseline” hash alapján vizsgáljuk, módosult-e a fájl. [github](https://github.com/cedricbonhomme/pyHIDS)
+
+**Kulcsfogalmak**  
+- Hash (pl. SHA‑256),  
+- Baseline / referencia adatbázis,  
+- Fájlváltozás (integritási sértés),  
+- Signature detection (pl. „HASH változott”),  
+- Wazuh / Open‑source HIDS (pl. pyHIDS). [runebook](https://runebook.dev/en/docs/python/library/hashlib/file-hashing)
+
+**Vizsgán hogyan kérdezhetik**  
+- „Miért nem elég a dátumváltozás alapján figyelni egy fájlt?”  
+- „Mi az alapelve a hash‑alapú integritásellenőrzésnek?”  
+
+**Python‑példa (fájlhash tárolása és ellenőrzése)**  
+
+```python
+import hashlib
+import json
+import os
+
+DB_FILE = "hash_db.json"
+
+def compute_hash(filepath):
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(4096):
+            h.update(chunk)
+    return h.hexdigest()
+
+def save_baseline(filelist):
+    db = {}
+    for fp in filelist:
+        if os.path.exists(fp):
+            db[fp] = compute_hash(fp)
+    with open(DB_FILE, "w") as f:
+        json.dump(db, f, indent=2)
+
+def check_integrity():
+    if not os.path.exists(DB_FILE):
+        print("Nincs baseline adatbázis.")
+        return
+    with open(DB_FILE) as f:
+        db = json.load(f)
+    for fp, old_hash in db.items():
+        if not os.path.exists(fp):
+            print(f"!! FÁJL ELVESZETT: {fp}")
+            continue
+        new_hash = compute_hash(fp)
+        if new_hash != old_hash:
+            print(f"!! INTEGRITÁS VISSZAESÉS: {fp}")
+```
+
+**Gyakori hibák**  
+- Óriási fájlokat egyben beolvasni, emlékméret‑problémák.  
+- Nem kezelni a fájl hiányát vagy jogosultságokat a `FileNotFoundError`/`PermissionError` kezelése nélkül.  
+
+**Források**  
+- pyHIDS GitHub: [HIDS Python implementáció](https://github.com/cedricbonhomme/pyHIDS) [github](https://github.com/cedricbonhomme/pyHIDS)
+- Runebook: [Mastering File Integrity: Python's hashlib](https://runebook.dev/en/docs/python/library/hashlib/file-hashing) [runebook](https://runebook.dev/en/docs/python/library/hashlib/file-hashing)
+
+***
+
+### 4. Python log parsing
+
+**Rövid magyarázat**  
+Log parsing az a folyamat, amikor nyers logszövegből kinyerjük a mezőket (időpont, IP, hiba szint, stb.) és strukturált adat (pl. dict) lesz belőle. [geeksforgeeks](https://www.geeksforgeeks.org/python/parse-and-clean-log-files-in-python/)
+
+**Kulcsfogalmak**  
+- Log formátum (pl. Apache Common Log),  
+- Strukturált adat: `dict`, `list`, `DataFrame`,  
+- RegEx (regex) minta,  
+- Fájl iteráció (line‑by‑line),  
+- Kivételkezelés (rossz formátum). [stackoverflow](https://stackoverflow.com/questions/71529732/parsing-logs-with-regular-expressions-python)
+
+**Vizsgán hogyan kérdezhetik**  
+- „Milyen módszerekkel lehet logot feldolgozni Pythonban?”  
+- „Mondj egy olyan logmezőt, amit érdemes kinyerni.”  
+
+**Python‑példa (Apache‑szerű log)**  
+
+```python
+import re
+
+LOG_PATTERN = r'(\S+) . . \[(\S+ \S+)\] "(\S+) (\S+).*" (\d{3})'
+
+def parse_apache_log(line):
+    match = re.match(LOG_PATTERN, line.strip())
+    if not match:
+        return None
+    fields = match.groups()
+    return {
+        "ip": fields[0],
+        "timestamp": fields [microsoft](https://www.microsoft.com/hu-hu/security/business/security-101/what-is-a-security-operations-center-soc),
+        "method": fields [beos](https://beos.hu/biztonsagi-muveleti-kozpont-soc-definicioja-es-szerepe-az-it-biztonsagban/),
+        "url": fields [hte](https://www.hte.hu/documents/10180/4864448/Marsi_Tam%C3%A1s_EIVOK-36.pdf),
+        "status": int(fields [negg](https://negg.blog/en/siem-and-cyber-security-advanced-protection-and-monitoring/))
+    }
+
+line = '192.168.1.1 - - [07/May/2026:10:00:00 +0200] "GET /index.html HTTP/1.1" 200'
+print(parse_apache_log(line))
+```
+
+**Gyakori hibák**  
+- Nem escape‑elni speciális karaktereket a regexben (pl. `]`, `+`).  
+- Nem `match` vagy `search` különbségére figyelni, így nem találja a regex a sort.  
+
+**Források**  
+- GeeksforGeeks: [Parse and Clean Log Files in Python](https://www.geeksforgeeks.org/python/parse-and-clean-log-files-in-python/) [geeksforgeeks](https://www.geeksforgeeks.org/python/parse-and-clean-log-files-in-python/)
+- StackOverflow: [Log parsing with regex Python](https://stackoverflow.com/questions/71529732/parsing-logs-with-regular-expressions-python) [stackoverflow](https://stackoverflow.com/questions/71529732/parsing-logs-with-regular-expressions-python)
+
+***
+
+### 5. Python regex alapok loghoz
+
+**Rövid magyarázat**  
+A Python `re` modul segítségével regex (szabályos kifejezés) segítségével keresünk, illetve kinyerünk részstringeket logokból. [stackoverflow](https://stackoverflow.com/questions/30956820/log-parsing-with-regex)
+
+**Kulcsfogalmak**  
+- `re.match()` / `re.search()`,  
+- Capturing group `(...)`,  
+- `\S+`, `\d+`, `.*`,  
+- Named group `(?P<nev>...)`,  
+- Greedy / non‑greedy (`.*?`). [stackoverflow](https://stackoverflow.com/questions/30956820/log-parsing-with-regex)
+
+**Vizsgán hogyan kérdezhetik**  
+- „Miben különbözik a `match` és a `search`?”  
+- „Mondj egy regex példát, amely IP‑t keres.”  
+
+**Python‑példa (IP‑kinyerés)**  
+
+```python
+import re
+
+LOG_LINE = "ERROR 07/May/2026:10:01:00 192.168.1.100: Connection refused"
+
+IP_RE = r"((?:\d{1,3}\.){3}\d{1,3})"
+
+match = re.search(IP_RE, LOG_LINE)
+if match:
+    print("IP:", match.group(1))
+```
+
+**Gyakori hibák**  
+- Nem `re.search`‑et használni, ha a minta nem a sor elején van.  
+- Túl szigorú regex (pl. rögzített szóközök, amelyek nem stimmelnek).  
+
+**Források**  
+- GeeksforGeeks: [Python regex tutorial](https://www.geeksforgeeks.org/python-regex/) [geeksforgeeks](https://www.geeksforgeeks.org/python/parse-and-clean-log-files-in-python/)
+- StackOverflow: [Log parsing with regex](https://stackoverflow.com/questions/30956820/log-parsing-with-regex) [stackoverflow](https://stackoverflow.com/questions/30956820/log-parsing-with-regex)
+
+***
+
+### 6. Brute force detection egyszerű szabályokkal
+
+**Rövid magyarázat**  
+Brute force (pl. SSH/Windows‑bejelentkezés) számlálásához adott IP címről számoljuk a sikertelen kísérleteket egy időablakon belül. [negg](https://negg.blog/en/siem-and-cyber-security-advanced-protection-and-monitoring/)
+
+**Kulcsfogalmak**  
+- Sikertelen bejelentkezés (pl. `Login failed`, `AUTHFAIL`),  
+- IP‑alapú számlálás,  
+- Időablak (pl. 5 perc),  
+- Threshold (pl. 5 sikertelen / 1 perc),  
+- Alert / logszint emelés. [freecodecamp](https://www.freecodecamp.org/news/how-to-create-a-python-siem-system-using-ai-and-llms/)
+
+**Vizsgán hogyan kérdezhetik**  
+- „Milyen logjelölőket keress egy brute‑force szabályban?”  
+- „Milyen logikája lehet egy egyszerű brute‑force szabálynak?”  
+
+**Python‑példa (szimpla brute‑force számláló)**  
+
+```python
+from datetime import datetime, timedelta
+import re
+
+LOG_LINE_RE = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) .* ip=(\S+) .* Login failed"
+
+alerts = []
+
+def check_bruteforce(log_lines, threshold=3, window=120):
+    """
+    log_lines: [{ 'timestamp': dt, 'ip': str }]
+    """
+    now = datetime.now()
+    for line in log_lines:
+        line_time = datetime.fromisoformat(line["timestamp"])
+        if now - line_time > timedelta(seconds=window):
+            continue
+        for alert in alerts:
+            if alert["ip"] == line["ip"]:
+                alert["count"] += 1
+                if alert["count"] >= threshold:
+                    alert["alerted"] = True
+                break
+        else:
+            alerts.append({
+                "ip": line["ip"],
+                "count": 1,
+                "alerted": False
+            })
+
+# Szimulált logok (átalakítva parse‑után)
+simulated_logs = [
+    {"timestamp": "2026-05-07T10:00:00", "ip": "192.168.1.100"},
+    {"timestamp": "2026-05-07T10:00:10", "ip": "192.168.1.100"},
+    {"timestamp": "2026-05-07T10:00:20", "ip": "192.168.1.100"},
+]
+check_bruteforce(simulated_logs, threshold=3)
+high_alerts = [a for a in alerts if a["alerted"]]
+print("Brute‑force gyanús:", high_alerts)
+```
+
+**Gyakori hibák**  
+- Nem szűrni az időablakot, így a múltbeli logokat is számolni.  
+- Nem „IP‑alapú” csoportosítani, hanem egy globális számlálót használni.  
+
+**Források**  
+- NEGG: [SIEM and brute‑force detection](https://negg.blog/en/siem-and-cyber-security-advanced-protection-and-monitoring/) [negg](https://negg.blog/en/siem-and-cyber-security-advanced-protection-and-monitoring/)
+- FreeCodeCamp: [Python SIEM with brute‑force‑like rules](https://www.freecodecamp.org/news/how-to-create-a-python-siem-system-using-ai-and-llms/) [freecodecamp](https://www.freecodecamp.org/news/how-to-create-a-python-siem-system-using-ai-and-llms/)
+
+***
+
+### 7. File hashing Pythonban
+
+**Rövid magyarázat**  
+A `hashlib` modul segítségével fájl tartalmát hash‑eljük (pl. `sha256`), amit integritás‑ellenőrzésre használhatunk. [geeksforgeeks](https://www.geeksforgeeks.org/python/hashlib-module-in-python/)
+
+**Kulcsfogalmak**  
+- `hashlib.sha256`,  
+- Chunk‑olás (nem egyszerre beolvasni az egész fájlt),  
+- `hexdigest()`,  
+- Checksum / hash comparison. [geeksforgeeks](https://www.geeksforgeeks.org/python/hashlib-module-in-python/)
+
+**Vizsgán hogyan kérdezhetik**  
+- „Milyen alapvető hash függvényeket ismersz Pythonban?”  
+- „Miért érdemes a fájlt kis darabokban beolvasni?”  
+
+**Python‑példa (fájlhash)**  
+
+```python
+import hashlib
+
+def file_hash(filepath, algorithm="sha256"):
+    h = hashlib.new(algorithm)
+    with open(filepath, "rb") as f:
+        while chunk := f.read

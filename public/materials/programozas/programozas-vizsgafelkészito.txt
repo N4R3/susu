@@ -1,0 +1,582 @@
+**Programozás – Vizsgafelkészítő tananyag (2026.05.09)**  
+**Tárgy:** Programozás (könnyebb / másodlagos vizsgablokk)  
+**Projekt:** Project Sentinel / Secret Database CLI Tool  
+**Stílus:** kezdőbarát, nagyon gyakorlati, vizsgára optimalizált. Csak azt tartalmazza, amit el kell tudnod magyarázni, módosítani és kódolni.
+
+### 1. Vizsgafókuszú tanulási útvonal (ajánlott sorrend)
+1. **Alapok (30 perc)** – string normalization + set + file I/O  
+2. **CLI építés (20 perc)** – argparse + stdout/stderr  
+3. **Biztonság (25 perc)** – environment variables + bcrypt  
+4. **Haladó feldolgozás (25 perc)** – regex + error handling  
+5. **Tesztelés (20 perc)** – unittest  
+6. **Teljes projekt összefűzése + gyakorlófeladatok (maradék idő)**  
+
+**Cél:** 2-3 óra alatt teljes körképet kapsz a Secret Database CLI Tool-ról.
+
+### 2-4. Minden témához: magyarázat + kódpélda + tipikus vizsgafeladat
+
+#### 1. String normalization
+**Rövid magyarázat:**  
+Eltávolítjuk a felesleges szóközöket, kisbetűsítjük, ékezetes karaktereket lecseréljük. Így a keresés pontos lesz (pl. "Kovács" == "kovacs").
+
+**Python-kódpélda:**
+```python
+import unicodedata
+
+def normalize_string(text: str) -> str:
+    # ékezetek eltávolítása
+    text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
+    return text.strip().lower().replace(" ", "")
+
+# Használat
+print(normalize_string("Kovács János "))  # → "kovacsjanos"
+```
+
+**Tipikus vizsgafeladat:**  
+Normalizáld a felhasználóneveket egy secrets.txt fájlból, és írd ki a normalizált verziót.
+
+#### 2. Set használat O(1) lookuphoz
+**Rövid magyarázat:**  
+A lista keresés O(n), a set keresés O(1) → nagyon gyors duplikátum-ellenőrzés és lookup Secret Database-ben.
+
+**Python-kódpélda:**
+```python
+secrets = set()
+with open("secrets.txt", "r", encoding="utf-8") as f:
+    for line in f:
+        normalized = normalize_string(line.strip())
+        if normalized in secrets:
+            print(f"Duplikátum: {line.strip()}", file=sys.stderr)
+        else:
+            secrets.add(normalized)
+```
+
+**Tipikus vizsgafeladat:**  
+Olvass be egy fájlt és gyűjtsd set-be a normalizált sorokat. Ha már létezik, írj stderr-re figyelmeztetést.
+
+#### 3. File I/O és streaming
+**Rövid magyarázat:**  
+Nagy fájlokat ne olvass be egyszerre (`read()`), hanem soronként (`for line in file`) → memória-kímélő (streaming).
+
+**Python-kódpélda:**
+```python
+def load_secrets(filename: str):
+    secrets = set()
+    with open(filename, "r", encoding="utf-8") as f:  # streaming!
+        for line in f:
+            normalized = normalize_string(line.strip())
+            secrets.add(normalized)
+    return secrets
+```
+
+**Tipikus vizsgafeladat:**  
+Írj streaming módon fájlbeolvasót, ami 1 GB-os secrets fájlt is kezelni tud.
+
+#### 4. argparse
+**Rövid magyarázat:**  
+CLI parancsok kezelése (`--file`, `--hash`, `--add` stb.). Ez a Secret Database Tool „felülete”.
+
+**Python-kódpélda:**
+```python
+import argparse
+parser = argparse.ArgumentParser(description="Project Sentinel CLI")
+parser.add_argument("--file", required=True, help="secrets.txt útvonal")
+parser.add_argument("--add", help="Új secret hozzáadása")
+parser.add_argument("--hash", action="store_true", help="Jelszavak bcrypt hash-elése")
+args = parser.parse_args()
+```
+
+**Tipikus vizsgafeladat:**  
+Készíts CLI-t 3 paranccsal: `--load`, `--add-secret`, `--check-duplicates`.
+
+#### 5. bcrypt password hashing
+**Rövid magyarázat:**  
+Biztonságos jelszó-tárolás. Soha ne tárold plain text-ben! Bcrypt automatikusan sóz és lassú (brute-force ellen).
+
+**Python-kódpélda:**
+```python
+import bcrypt
+
+def hash_password(password: str) -> str:
+    salt = bcrypt.gensalt(rounds=12)          # min. 10-12 rounds
+    hashed = bcrypt.hashpw(password.encode(), salt)
+    return hashed.decode()
+
+def check_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode(), hashed.encode())
+```
+
+**Tipikus vizsgafeladat:**  
+Írj függvényt, ami bcrypt-tel hasheli a jelszót és elmenti fájlba.
+
+#### 6. Environment variables
+**Rövid magyarázat:**  
+Soha ne hardcode-old a titkos kulcsokat! `.env` fájlból olvasd be `os.getenv`-vel.
+
+**Python-kódpélda:**
+```python
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+DB_PATH = os.getenv("DB_PATH", "secrets.db")
+SALT_ROUNDS = int(os.getenv("BCRYPT_ROUNDS", 12))
+```
+
+**Tipikus vizsgafeladat:**  
+Olvasd be a bcrypt rounds értékét environment variable-ból.
+
+#### 7. unittest
+**Rövid magyarázat:**  
+Automatikus tesztek. Vizsgán mindig várják, hogy mutasd be a unit tesztet.
+
+**Python-kódpélda:**
+```python
+import unittest
+
+class TestNormalization(unittest.TestCase):
+    def test_normalize(self):
+        self.assertEqual(normalize_string("Kovács "), "kovacs")
+        self.assertEqual(normalize_string(""), "")
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+**Tipikus vizsgafeladat:**  
+Írj 3 unit tesztet a normalize_string és a hash_password függvényekhez.
+
+#### 8. Error handling
+**Rövid magyarázat:**  
+`try-except` + specifikus hibák. Soha ne hagyd összeomlani a CLI-t.
+
+**Python-kódpélda:**
+```python
+try:
+    with open(filename) as f:
+        ...
+except FileNotFoundError:
+    print("Hiba: A fájl nem található!", file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    print(f"Váratlan hiba: {e}", file=sys.stderr)
+```
+
+**Tipikus vizsgafeladat:**  
+Kezeld gracefully, ha a secrets.txt hiányzik.
+
+#### 9. regex
+**Rövid magyarázat:**  
+Mintaillesztés (pl. e-mail, erős jelszó ellenőrzés).
+
+**Python-kódpélda:**
+```python
+import re
+strong_password = re.compile(r'^(?=.*[A-Z])(?=.*\d).{8,}$')
+
+if not strong_password.match(password):
+    print("Gyenge jelszó!", file=sys.stderr)
+```
+
+**Tipikus vizsgafeladat:**  
+Ellenőrizd regex-szel, hogy a secret tartalmaz-e érvényes e-mail címet.
+
+#### 10. stdout/stderr szeparáció
+**Rövid magyarázat:**  
+Normál kimenet → stdout (`print()`), hibák és logok → stderr (`print(..., file=sys.stderr)`). Pipe-olható CLI-khoz kötelező.
+
+**Python-kódpélda:**
+```python
+import sys
+print("Sikeresen betöltve 42 secret")          # stdout
+print("Duplikátum található!", file=sys.stderr) # stderr
+```
+
+**Tipikus vizsgafeladat:**  
+Írd a találatokat stdout-ra, a hibákat stderr-re.
+
+### 5. Gyakorlófeladatok megoldással együtt
+
+**Gyakorlófeladat 1:** Normalizáld és set-be tedd a sorokat.  
+**Megoldás:**
+```python
+def load_and_normalize(filename):
+    s = set()
+    with open(filename, encoding="utf-8") as f:
+        for line in f:
+            s.add(normalize_string(line.strip()))
+    return s
+```
+
+**Gyakorlófeladat 2:** bcrypt hash + env var.  
+**Megoldás:**
+```python
+import bcrypt, os
+password = os.getenv("MASTER_PASS")
+hashed = hash_password(password)
+```
+
+**Gyakorlófeladat 3:** Unit test + error handling.  
+**Megoldás:** (lásd unittest + try-except példák fent)
+
+**Gyakorlófeladat 4:** Teljes CLI flow (load + hash + check duplicate).  
+**Megoldás:** argparse + load_secrets + hash_password + set ellenőrzés.
+
+### 6. AI-használati stratégia (vizsgán is használható!)
+
+**Mire használd az AI-t:**
+- Gyors kódvázlat generálása (argparse sablon, bcrypt példa)
+- Hibakeresés („miért nem működik ez a regex?”)
+- Unit test generálás
+- Gyors magyarázat („magyarázd el miért kell streaming file I/O”)
+
+**Mire NE bízz vakon:**
+- Biztonsági kódra (bcrypt, env var kezelésre) – mindig ellenőrizd!
+- Teljes programra – az AI gyakran globális változókat használ vagy rossz CLI-t ír.
+
+**Hogyan ellenőrizd az AI kódját:**
+1. Futtasd le saját gépen
+2. Írj hozzá unit tesztet (ha nem passzol → rossz)
+3. Nézd meg a PEP8 szabályokat (`black`, `flake8`)
+4. Kérdezd meg: „mi történik, ha a fájl üres / nem létezik?”
+5. Olvasd el a kódot hangosan – érthető-e?
+
+### 7. Ismétlési tervek
+
+**30 perces verzió (utolsó roham):**
+- 0-10 perc: normalize + set + file streaming
+- 10-20 perc: argparse + bcrypt + env var
+- 20-30 perc: 2 unit test + error handling + stdout/stderr
+
+**60 perces verzió:**
+- 0-25 perc: 1-6. témák (alapok + CLI + biztonság)
+- 25-40 perc: regex + error handling + unittest
+- 40-60 perc: 4 gyakorlófeladat megoldása + AI ellenőrzés
+
+**120 perces verzió (ideális):**
+- 0-60 perc: minden téma végigolvasása + kódok bemásolása és futtatása
+- 60-100 perc: összes gyakorlófeladat saját kézzel
+- 100-120 perc: teljes CLI Tool összerakása + unit tesztek futtatása
+
+**Common mistakes (ne kövesd el!):**
+- `read()` helyett `for line in f` (memória probléma)
+- plain text jelszó mentése
+- `print()` stderr helyett
+- argparse nélkül globális változó
+- nincs `if __name__ == "__main__":`
+- unit testben nincs `assert`
+
+Sok sikert a vizsgán!  
+Ez a tananyag pontosan arra van kitalálva, amit egy Programozás vizsgán a Secret Database CLI Tool kapcsán elvárnak: tiszta, biztonságos, tesztelt, CLI-s Python kód.  
+
+Ha van egy konkrét kódod vagy fájlod a ZIP-ből, küldd be és finomítom rá a példákat!
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Pontosan olyan stílusban, mint amit kértél: tömör, vizsgafelkészítő, Python‑/CLI‑orientált, mindegyik témához kis példa, feladattípusok, hibák, ellenőrző kérdések és források.
+
+***
+
+### 1. String normalization Pythonban
+
+**Rövid magyarázat**  
+String normalization (pl. Unicode‑normalizálás) segít egységesített formába hozni a szöveget: pl. `é` és `é` különböző kanonikus formái egyforma normállá válnak, így biztonságosabb összehasonlítás / keresés. [docs.python](https://docs.python.org/3/library/unicodedata.html)
+
+**Python‑példa**  
+
+```python
+import unicodedata
+
+def normalize_text(s: str) -> str:
+    return unicodedata.normalize("NFC", s.lower().strip())
+
+plain = normalize_text("éÜlőkép  ")
+accented = normalize_text("éÜLőkép")
+print(plain == accented)  # True, ha a charok ténylegesen azonosak
+```
+
+**Vizsgafeladat típusok**  
+- Írj függvényt, amely „egységes” keresési kulcsot készít felhasználói nevekből (case‑insensitive, ékezetek egységesítve).  
+- Rendezzen egy lista neveket úgy, hogy `é` és `ê` ugyanannak számítson.  
+
+**Gyakori hibák**  
+- Nem normalizálni a szöveget, hanem csak a `.lower()`‑et használni, így különböző Unicode‑formák különkülünnek.  
+- Nem kisbetűsíteni (`lower()` nélkül), így `User` és `user` különbözőnek látszik.  
+
+**Ellenőrző kérdések**  
+- Mi a különbség `NFC` és `NFD` között?  
+- Miért fontos a normalizálás a CLI‑eszközök bejelentkezési / keresési logikájánál?  
+
+**Források**  
+- Python docs: `unicodedata.normalize` [docs.python](https://docs.python.org/3/library/unicodedata.html)
+- Blog: „Unicode string normalization schemes in Python” [theniraj](https://theniraj.com/unicode-string-normalization-schemes-in-python)
+
+***
+
+### 2. set adattípus és O(1) keresés
+
+**Rövid magyarázat**  
+A `set` olyan adatstruktúra, amely csakis egyedi elemeket tárol, és a tartalmazás‑ellenőrzés (pl. `item in large_set`) gyakorlatilag konstans idejű, mert hash‑táblán alapszik. [stackoverflow](https://stackoverflow.com/questions/3949310/how-is-set-implemented)
+
+**Python‑példa**  
+
+```python
+users = {"admin", "alice", "bob", "secret_user"}
+
+def is_authorized(username: str) -> bool:
+    return username in users  # O(1) keresés, függetlenül a set méretétől
+
+print(is_authorized("admin"))   # True
+print(is_authorized("eve"))     # False
+```
+
+**Vizsgafeladat típusok**  
+- Döntsd el, hogy egy adott felhasználó része‑e egy nagy listában, de lineáris keresés helyett használj `set`-et.  
+- Írj függvényt, ami két lista közös elemeit adja vissza (közös hozzáférési jogosultságok).  
+
+**Gyakori hibák**  
+- Minden keresést a `list`‑en végezni (`for x in lst`), így lineáris lesz a keresés, nem O(1).  
+- Olyan típusokat adni a `set`‑be, amelyek nem hash‑elhetők (pl. `dict`, `list`).  
+
+**Ellenőrző kérdések**  
+- Miért nem lehet lista `set` eleme?  
+- Miért a `set` jobb választás a hitelesített felhasználók tárolására, mint a `list`?  
+
+**Források**  
+- StackOverflow: „How is set() implemented?” [stackoverflow](https://stackoverflow.com/questions/3949310/how-is-set-implemented)
+- Blog: „How Dictionary Lookup Operations Are O(1)” (a set ism.) [dev](https://dev.to/ajipelumi/how-dictionary-lookup-operations-are-o1-49pk)
+
+***
+
+### 3. Fájlbeolvasás nagyobb fájloknál, streaming szemlélet
+
+**Rövid magyarázat**  
+Nagy fájloknál nem érdemes egyszerre beolvasni az egész tartalmat, hanem soronként, „streaming” módon dolgozunk, így a memória‑igény nem nő a fájl méretével arányosan. [richardkorom](https://richardkorom.hu/python/fajlkezeles/)
+
+**Python‑példa**  
+
+```python
+def count_lines_matching(filepath: str, pattern: str) -> int:
+    count = 0
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line in f:
+            if pattern in line:
+                count += 1
+    return count
+
+print(count_lines_matching("huge_secret_log.txt", "ERROR"))
+```
+
+**Vizsgafeladat típusok**  
+- Olvasd be egy nagy logfájlt, és gyűjtsd össze a különböző IP‑ket egy `set`‑ben, anélkül, hogy a teljes fájlt memóriába töltenéd.  
+- Írj függvényt, amely egy nagy kulcslista fájlból csak a releváns sorokat dolgozza fel.  
+
+**Gyakori hibák**  
+- `read()` helyett `readlines()` használata óriási fájlokra, ami teljesen elfogyasztja a memóriát.  
+- Nem `utf‑8`‑as kódolást használni, így ékezetes karakterek széteshetnek.  
+
+**Ellenőrző kérdések**  
+- Miért nem jó a `f.read()` egy nagy logfájlhoz?  
+- Milyen előnye van a `for line in f:`‑nek a `f.read().splitlines()`‑sal szemben nagy fájloknál?  
+
+**Források**  
+- Korom Richárd: „Fájlkezelés” [richardkorom](https://richardkorom.hu/python/fajlkezeles/)
+- <info9>: „Fájlok olvasása és feldolgozása” [info9.edemmester](https://info9.edemmester.hu/hu/py/fo_open)
+
+***
+
+### 4. argparse CLI argumentumkezelés
+
+**Rövid magyarázat**  
+Az `argparse` modul segítségével egyszerűen, „szép” help‑szövegekkel és validációval lehet kezelni a CLI argumentumokat; ideális a Secret‑DB / Sentinel‑stílusú CLI eszközökhöz. [docs.python](https://docs.python.org/3/howto/argparse.html)
+
+**Python‑példa**  
+
+```python
+import argparse
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="secret_db",
+        description="Secret Database CLI Tool"
+    )
+    parser.add_argument("command", choices=["add", "get", "list"])
+    parser.add_argument("--user", required=True, help="Felhasználó")
+    parser.add_argument("--secret", "-s", help="Titkos érték")
+    parser.add_argument("--dry-run", action="store_true", help="Csak szimulál")
+
+    args = parser.parse_args()
+    print(f"Command: {args.command}")
+    print(f"User: {args.user}")
+    if args.secret:
+        print("Secret: [REDACTED]")
+
+if __name__ == "__main__":
+    main()
+```
+
+**Vizsgafeladat típusok**  
+- Írj olyan CLI‑t, amely `--action` és `--file` argumentumot fogad, ahol `--action` csak `import`, `export`, `verify` lehet.  
+- Egészítsd ki a programot opcionális `--verbose` flaggel, amely logolja a műveleteket.  
+
+**Gyakori hibák**  
+- Nem `choices=`‑t használni, így a felhasználó nem megengedett opciókat is adhat meg.  
+- `required=True` hiánya olyan argumentumoknál, ahol a program működéséhez elengedhetetlen.  
+
+**Ellenőrző kérdések**  
+- Mi a különbség `store_true` és nincs `action` argumentum között?  
+- Hogyan érheted el az `add`/`get` parancs értékét a `args` objektumból?  
+
+**Források**  
+- Python docs: `argparse` tutorial [docs.python](https://docs.python.org/3/howto/argparse.html)
+- Real Python: „Build Command‑Line Interfaces With Python's argparse” [realpython](https://realpython.com/command-line-interfaces-python-argparse/)
+
+***
+
+### 5. bcrypt jelszóhash‑elés
+
+**Rövid magyarázat**  
+A `bcrypt` erősen ajánlott jelszóhash‑elési algoritmus, lassú, iterációkon alapszik, így a brute‑force támadásokat jelentősen nehezíti. A `bcrypt.hashpw()` hash‑eli, a `bcrypt.checkpw()` a jelszó ellenőrzésére használható. [geeksforgeeks](https://www.geeksforgeeks.org/python/hashing-passwords-in-python-with-bcrypt/)
+
+**Python‑példa**  
+
+```python
+import bcrypt
+
+def hash_password(plain: str) -> bytes:
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(plain.encode("utf-8"), salt)
+
+def verify_password(plain: str, hash_bytes: bytes) -> bool:
+    return bcrypt.checkpw(plain.encode("utf-8"), hash_bytes)
+
+pwd = "Secret123!"
+hashed = hash_password(pwd)
+print("Verified:", verify_password("Secret123!", hashed))
+```
+
+**Vizsgafeladat típusok**  
+- Írj hitelesítő függvényt, amely egy regisztrációs jelszót hash‑el és tárol, majd bejelentkezéskor ellenőrzi.  
+- Egészítsd ki a CLI‑t egy `--hash` opcióval, amely egy jelszót a konzolról elfogadva mutatja a hash‑et.  
+
+**Gyakori hibák**  
+- Egy „fix” sót (`salt`‑ot) használni minden jelszóhoz, ami csökkenti a biztonságot.  
+- A hasht `b""` formában próbálják meg változtatni stringként (pl. `str(hash)` és visszanyerni), ami nem működik.  
+
+**Ellenőrző kérdések**  
+- Miért nem tárolható a jelszó nyers formában a titkos adatbázisban?  
+- Miért jó, ha a `bcrypt` lassú, nem pedig gyors?  
+
+**Források**  
+- GeeksforGeeks: „Hashing Passwords with Bcrypt” [geeksforgeeks](https://www.geeksforgeeks.org/python/hashing-passwords-in-python-with-bcrypt/)
+- DEV.to: „Password hashing using Bcrypt in Python” [dev](https://dev.to/abbyesmith/password-hashing-using-bcrypt-in-python-2i08)
+
+***
+
+### 6. Environment variables Pythonban
+
+**Rövid magyarázat**  
+A környezeti változók (pl. `DATABASE_SECRET`, `DEBUG`) a `os.environ` vagy `os.getenv()` segítségével érhetők el; ideálisak titkos adatok (kulcsok, jelszavak) konfigurálására anélkül, hogy a kódban lennének. [sulipython.fandom](https://sulipython.fandom.com/hu/wiki/Adatbeolvas%C3%A1s)
+
+**Python‑példa**  
+
+```python
+import os
+
+def get_db_password() -> str:
+    password = os.getenv("SECRET_DB_PASSWORD")
+    if not password:
+        raise ValueError("SECRET_DB_PASSWORD environment variable is not set.")
+    return password
+
+# Kivételkezelés nélkül:
+# db_password = os.getenv("SECRET_DB_PASSWORD", "default_unsafe_password")
+```
+
+**Vizsgafeladat típusok**  
+- Írj függvényt, amely környezeti változóként kapott titkos kulcsot használ egy „Secret Database” CLI‑ben.  
+- Irányítsd úgy a programot, hogy `DEBUG` környezeti változó alapján másképp logoljon.  
+
+**Gyakori hibák**  
+- A jelszót a kódban „default”‑ként megadni (`os.getenv("X", "hardcoded_pw")`), ami biztonsági kockázat.  
+- Nem kezelni a `None`‑t, amikor nincs beállítva a környezeti változó.  
+
+**Ellenőrző kérdések**  
+- Miért jobb a környezeti változók használata a forráskód‑beli titkos értékek helyett?  
+- Milyen Python függvényt használsz, ha szeretnél egy alapértelmezett értéket a hiányzó környezeti változókhoz?  
+
+**Források**  
+- Python docs: `os.environ` (https://docs.python.org/3/library/os.html#os.environ)  
+- Peter Smith: „Mélyebben a Python eszközeiről” (env ism.) [psprog](https://psprog.hu/article/melyebben-a-python-eszkozeirol)
+
+***
+
+### 7. unittest alapok
+
+**Rövid magyarázat**  
+A `unittest` modul célja, hogy egyszerű, reprodukálható egység‑teszteket írhass kódodra; a `TestCase` osztályt tervezd úgy, hogy minden tesztmetódus önállóan futtatható legyen. [realpython](https://realpython.com/python-unittest/)
+
+**Python‑példa**  
+
+```python
+import unittest
+import hashlib
+
+def file_hash(filepath: str) -> str:
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(4096):
+            h.update(chunk)
+    return h.hexdigest()
+
+class TestFileHash(unittest.TestCase):
+    def test_empty_file(self):
+        # tegyük fel, van egy empty.txt amiben nincs semmi
+        h = file_hash("empty.txt")
+        self.assertEqual(
+            h,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        )
+
+    def test_nonexistent_file(self):
+        with self.assertRaises(FileNotFoundError):
+            file_hash("nonexistent_file.txt")
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+**Vizsgafeladat típusok**  
+- Írj `unittest.TestCase`‑t a `hash_password()` / `is_authorized()` függvényekhez (pozitív + negatív tesztesetek).  
+- Teszteld, hogy a CLI argumentumkezelés rossz opciókra helyesen dobjon `SystemExit`‑t.  
+
+**Gyakori hibák**  
+- Fixture‑t (pl. `setUp`) használni, de a tesztmetódusokat közvetlen futtatni, anélkül, hogy a `unittest.main()`‑t hívna.  
+- A tesztek egymásra utalnak, így a sorrend befolyásolja az eredményt.  
+
+**Ellenőrző kérdések**  
+- Mit tesztel a `test_empty_file` és miért fontos az ilyen „élhelyzet”?  
+- Mi a különbség `assertEqual` és `assertTrue` között?  
+
+**Források**  
+- Real Python: „Python's unittest” [realpython](https://realpython.com/python-unittest/)
+- Richard Korom: „Unittest” [richardkorom](https://richardkorom.hu/python/teszteles/)
+
+***
+
+### 8. Kivételkezelés
+
+**Rövid magyarázat**  
+A `try`/`except`/`finally` szerkezettel le tudod kezelni a kivételeket, így a CLI‑programod nem zuhan össze titkos adatokat kezelő hibák esetén, hanem szépen hibajelzést ad. [sulipython.fandom](https://sulipython.fandom.com/hu/wiki/Adatbeolvas%C3%A1s)
+
+**Python‑példa**  
+
+```python
+import os
+
+def read_secret_file(path: str) -> str:
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        print("ERROR: a titkos fájl nem található

@@ -1,0 +1,18 @@
+test_high_cost_hash_is_skipped_with_warning (test_sentinel.TestBcryptMode.test_high_cost_hash_is_skipped_with_warning) ... ok
+test_normalization_feeds_bcrypt_verification (test_sentinel.TestBcryptMode.test_normalization_feeds_bcrypt_verification) ... ok
+test_valid_and_invalid_bcrypt_hashes (test_sentinel.TestBcryptMode.test_valid_and_invalid_bcrypt_hashes) ... ok
+test_equivalent_formats_have_same_canonical_form (test_sentinel.TestNormalization.test_equivalent_formats_have_same_canonical_form) ... ok
+test_mixed_case_handling (test_sentinel.TestNormalization.test_mixed_case_handling) ... ok
+test_null_and_empty_string_resilience (test_sentinel.TestNormalization.test_null_and_empty_string_resilience) ... ok
+test_punctuation_and_space_removal (test_sentinel.TestNormalization.test_punctuation_and_space_removal) ... ok
+test_database_is_loaded_into_set (test_sentinel.TestNormalizedMode.test_database_is_loaded_into_set) ... ok
+test_match_and_non_match_after_normalization (test_sentinel.TestNormalizedMode.test_match_and_non_match_after_normalization) ... ok
+test_stdout_remains_clean_when_verbose_is_enabled (test_sentinel.TestNormalizedMode.test_stdout_remains_clean_when_verbose_is_enabled) ... ok
+test_peppered_mode_uses_environment_variable (test_sentinel.TestPepperedMode.test_peppered_mode_uses_environment_variable) ... ok
+test_run_accepts_pepper_environment_variable (test_sentinel.TestPepperedMode.test_run_accepts_pepper_environment_variable) ... ok
+test_run_requires_pepper_environment_variable (test_sentinel.TestPepperedMode.test_run_requires_pepper_environment_variable) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.027s
+
+OK

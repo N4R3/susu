@@ -1,0 +1,23 @@
+INDITÁS ELOTT, MENJ BE A CMD-VEL A FILE HELYÉRE NÁLAM C:\Users\PC\Desktop\phyton\ZH 2026.05.15\adydemo  | EZT KELL BE IRNI: cd C:\Users\PC\Desktop\phyton\ZH 2026.05.15\adydemo
+
+INDITÁS:
+python sentinel.py --mode normalized --database "db.txt" --input "input.txt"
+
+INDITÁS BCRYPT:
+python sentinel.py --mode bcrypt --database db.txt --input input.txt
+
+INDITÁS BCRYPT ELLENORZÉSSEL:
+
+python sentinel.py --mode bcrypt --database db.txt --input input.txt --verbose
+
+UNIT TEST (IRD BE A FILE MAPPÁJÁT):
+cd "C:\Users\PC\Desktop\phyton\ZH 2026.05.15\adydemo"
+python -m unittest discover -s tests -v
+
+UNIT TEST UPDATE RUN:
+
+python -m unittest discover -s tests -v
+
+
+UJ ADAT HASH BCRYPT:
+python make_hashes.py
